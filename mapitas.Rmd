@@ -1,0 +1,280 @@
+---
+title: "mapitas"
+output: html_document
+date: "2025-07-15"
+---
+
+# Cluster Densidad del Estatal
+```{r}
+library(rio)
+estado = import("apoyo-porcentaje-finales.xlsx")
+```
+
+
+```{r}
+library(BBmisc)
+boxplot(normalize(estado[,c(3:6)],method='standardize'))
+```
+```{r}
+estado[,c(3:6)]=normalize(estado[,c(3:6)],method='standardize')
+```
+
+```{r}
+dataClus=estado[,c(3:6)]
+row.names(dataClus)=estado$Ubigeo
+```
+
+```{r}
+library(cluster)
+g.dist = daisy(dataClus, metric="gower")
+```
+
+```{r}
+set.seed(123)
+library(factoextra)
+
+res.agnes<- hcut(g.dist, k = 3,hc_func='agnes',hc_method = "ward.D")
+
+dataClus$agnes=res.agnes$cluster
+
+# ver
+
+head(dataClus,15)%>%kbl()%>%kable_styling()
+```
+
+```{r}
+fviz_silhouette(res.agnes,print.summary = F)
+```
+```{r}
+silAGNES=data.frame(res.agnes$silinfo$widths)
+silAGNES$country=row.names(silAGNES)
+poorAGNES=silAGNES[silAGNES$sil_width<0,'country']%>%sort()
+poorAGNES
+```
+
+```{r}
+set.seed(123)
+res.diana <- hcut(g.dist, k = 3,hc_func='diana')
+dataClus$diana=res.diana$cluster
+# veamos
+head(dataClus,15)%>%kbl%>%kable_styling()
+```
+
+```{r}
+fviz_silhouette(res.diana,print.summary = F)
+```
+```{r}
+silDIANA=data.frame(res.diana$silinfo$widths)
+silDIANA$country=row.names(silDIANA)
+poorDIANA=silDIANA[silDIANA$sil_width<0,'country']%>%sort()
+poorDIANA
+```
+
+```{r}
+library(kableExtra)
+set.seed(123)
+res.pam=pam(g.dist,3,cluster.only = F)
+
+#nueva columna
+dataClus$pam=res.pam$cluster
+
+# ver
+
+head(dataClus,15)%>%kbl()%>%kable_styling()
+```
+
+```{r}
+fviz_silhouette(res.pam,print.summary = F)
+```
+```{r}
+silPAM=data.frame(res.pam$silinfo$widths)
+silPAM$country=row.names(silPAM)
+poorPAM=silPAM[silPAM$sil_width<0,'country']%>%sort()
+poorPAM
+```
+
+```{r}
+estado$diana <- dataClus$diana
+```
+
+#Graficamos
+```{r}
+library(rio)
+elecciones <- import("Elecciones 2011_Distrital.xlsx")
+```
+
+```{r}
+elecciones$porcentaje_gana_peru <- (elecciones$`GANA PERU` / elecciones$`TOTAL ELECTORES`) * 100
+```
+
+```{r}
+estado$Ubigeo <- as.character(estado$Ubigeo)
+
+estado$Ubigeo <- ifelse(nchar(estado$Ubigeo) == 5,
+                        paste0("0", estado$Ubigeo),
+                        estado$Ubigeo)
+```
+
+```{r}
+library(dplyr)
+
+estado <- estado %>%
+  mutate(Ubigeo = as.character(Ubigeo))
+
+elecciones <- elecciones %>%
+  mutate(Ubigeo = as.character(UBIGEO))
+
+datita <- estado %>%
+  select(Ubigeo, diana, contains("porc")) %>%
+  left_join(
+    elecciones %>%
+      select(Ubigeo, DEPARTAMENTO, PROVINCIA, DISTRITO, `GANA PERU`, porcentaje_gana_peru),
+    by = "Ubigeo"
+  )
+
+```
+
+```{r}
+shp_path <- "SHPCensoDistrito INEI 2007 geogpsperu SuyoPomalia"
+peru_distritos <- st_read(dsn = shp_path, quiet = TRUE)
+```
+
+```{r}
+names(peru_distritos)
+names(datita)
+```
+
+```{r}
+datita <- datita %>%
+  select(
+    ubigeo,
+    DEPARTAMENTO,  # ← NOMDEPARTA
+    PROVINCIA,     # ← NOMPROVINC
+    DISTRITO,      # ← NOMDISTRIT
+    diana,
+    redpub_porc,
+    dni_porc,
+    elec_porc,
+    salud_porc,
+    edu_porc,
+    trabajo_porc,
+    porcentaje_gana_peru,
+    everything()  
+  )
+
+```
+
+```{r}
+peru_distritos <- peru_distritos %>%
+  select(
+    ubigeo,
+    NOMDEPARTA,
+    NOMPROVINC,
+    NOMDISTRIT,
+    geometry
+  )
+```
+
+
+```{r}
+mapa_data <- left_join(peru_distritos, datita, by = "ubigeo")
+```
+
+```{r}
+mapa_data <- mapa_data %>%
+  select(-DEPARTAMENTO, -PROVINCIA, -DISTRITO)
+```
+
+```{r}
+names(mapa_data)
+```
+```{r}
+names(peru_distritos)
+names(datita)
+```
+```{r}
+install.packages("fuzzyjoin")  
+library(dplyr)
+library(fuzzyjoin)
+```
+
+```{r}
+mapa_data <- stringdist_inner_join(
+  peru_distritos,
+  datita,
+  by = "ubigeo",
+  method = "lv",         
+  max_dist = 1,          
+  distance_col = "dist"  
+)
+```
+
+
+```{r}
+mapa_data <- mapa_data %>% select(-Ubigeo, -dist)
+```
+
+```{r}
+library(dplyr)
+library(fuzzyjoin)
+library(stringi)
+
+limpiar_texto <- function(x) {
+  x %>%
+    stri_trans_general("Latin-ASCII") %>% 
+    tolower() %>%                         
+    trimws()                              
+}
+
+peru_distritos_clean <- peru_distritos %>%
+  mutate(
+    distrito_limpio = limpiar_texto(NOMDISTRIT),
+    provincia_limpio = limpiar_texto(NOMPROVINC),
+    departamento_limpio = limpiar_texto(NOMDEPARTA)
+  ) %>%
+  select(ubigeo, NOMDISTRIT, NOMPROVINC, NOMDEPARTA,
+         distrito_limpio, geometry)
+
+datita_clean <- datita %>%
+  mutate(
+    distrito_limpio = limpiar_texto(DISTRITO),
+    provincia_limpio = limpiar_texto(PROVINCIA),
+    departamento_limpio = limpiar_texto(DEPARTAMENTO)
+  ) %>%
+  select(
+    distrito_limpio, provincia_limpio, departamento_limpio,
+    diana, redpub_porc, dni_porc, elec_porc, salud_porc,
+    edu_porc, trabajo_porc, porcentaje_gana_peru, ubigeo
+  )
+```
+```{r}
+peru_distritos_clean <- peru_distritos_clean %>%
+  mutate(distrito_match = limpiar_texto(NOMDISTRIT))
+```
+
+
+```{r}
+peru_distritos_clean <- peru_distritos_clean %>%
+  mutate(
+    departamento_clean = str_to_lower(stri_trans_general(str_trim(str_split_fixed(NOMDEPARTA, " ", 2)[,1]), "Latin-ASCII")),
+    provincia_clean = str_to_lower(stri_trans_general(str_trim(str_split_fixed(NOMPROVINC, " ", 2)[,1]), "Latin-ASCII")),
+    distrito_clean = str_to_lower(stri_trans_general(str_trim(NOMDISTRIT), "Latin-ASCII"))
+  )
+```
+
+
+```{r}
+merged_data <- inner_join(
+  peru_distritos_clean,
+  datita_clean,
+  by = c(
+    "departamento_clean" = "departamento_limpio",
+    "provincia_clean" = "provincia_limpio",
+    "distrito_limpio" = "distrito_limpio"
+  )
+)
+```
+```{r}
+merged_data <- merged_data %>%
+  filter(!is.na(porcentaje_gana_peru))
+```
