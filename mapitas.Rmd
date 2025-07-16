@@ -10,70 +10,230 @@ rm(list = ls())
 library(sf)
 map2011 = sf::read_sf("dismap2011.geojson")
 border = sf::read_sf("borderPeru.shp")
-
+data2011=read.csv("data2011.csv")
 
 ```
+
+
 
 ```{r}
 names(map2011)
 ```
 ```{r}
+select=c("redpub_porc","dni_porc","elec_porc","salud_porc")
+
+# mapa2011$estado=apply((map2011[,select]),1,mean)
+map2011$estado <- apply(sf::st_drop_geometry(map2011[, select]), 1, mean)
+
+
+```
+
+
+```{r}
+# select=c("redpub_porc","dni_porc","elec_porc","salud_porc")
+# theData=data2011[,select]
+# row.names(theData)=data2011$key
+# library(polycor)
+# corMatrix=polycor::hetcor(theData)$correlations
+# library(psych)
+# psych::KMO(corMatrix) 
+# cortest.bartlett(corMatrix,n=nrow(theData))$p.value>0.05
+# fa.parallel(theData, fa = 'fa',correct = T,plot = F)
+# library(GPArotation)
+# resfa <- fa(theData,
+#             nfactors = 1,
+#             cor = 'mixed',
+#             rotate = "varimax", #oblimin?
+#             fm="minres")
+# print(resfa$loadings)
+```
+
+
+```{r}
+names(map2011)
+```
+
+
+
+```{r}
 library(ggplot2)
 
-ggplot(data=map2011)+theme_linedraw() + geom_sf(data = border, fill='white') +
-  geom_sf(aes(fill=Ollanta_1a_Vuelta),color=NA) + facet_grid(ciudadania_educacion~presencia_estado) +
+v1=ggplot(data=map2011)+theme_linedraw() + geom_sf(data = border, fill='white') +
+  geom_sf(aes(fill=Ollanta_1a_Vuelta),color=NA) + facet_grid(idh_level~presencia_estado) +
     theme(legend.position="bottom",
           axis.text.x = element_blank(),
           axis.text.y = element_blank(),
           axis.ticks = element_blank(),
           panel.grid.major = element_blank(), panel.grid.minor = element_blank()
-            ) + 
+            ) + scale_fill_discrete(name="Votación de Ollanta - Vuelta 1 (2011)") +
   guides(fill = guide_legend(title.position="top", title.hjust = 0.5)) + 
-  scale_y_continuous(sec.axis = sec_axis(~ . , name = "Ciudadanos culminan\n secundaria o más", breaks = NULL, labels = NULL)) +
-  scale_x_continuous(sec.axis = sec_axis(~ . , name = "Presencia Estatal\n (dni/luz/agua/sis/essalud)", breaks = NULL, labels = NULL,))
+  scale_y_continuous(sec.axis = sec_axis(~ . , name = "Indice de Desarrollo Humano (2010)", breaks = NULL, labels = NULL)) +
+  scale_x_continuous(sec.axis = sec_axis(~ . , name = "Presencia Estatal, segun Censo 2007\n (Dni/Luz/Agua/SIS/EsSalud)", breaks = NULL, labels = NULL,))
+
+ggsave("v1map.pdf", v1)
+ggsave("v1map.svg", v1)
+
+```
+
+```{r}
+
+library(dplyr) 
+# 1. Calculate the counts per facet group
+counts_df <- map2011 %>%
+  group_by(Ollanta_1a_Vuelta) %>%
+  summarise(n_points = n()) %>%
+  ungroup()
+
+# 2. Determine good positions for the text in each facet
+max_estado <- max(map2011$estado, na.rm = TRUE)
+max_idh <- max(map2011$idh, na.rm = TRUE)
+
+# Add the coordinates to the counts_df
+counts_df <- counts_df %>%
+  mutate(
+    x_pos = 55,  # 95% of the max estado value for x-position
+    y_pos = 95, # 95% of the max idh value for y-position (since y is 100*idh)
+    label = paste0(n_points, " distritos")
+  )
+
+
+
+v1scatter=
+    ggplot(data = map2011, aes(x=estado, y=100*idh,color=Ollanta_1a_Vuelta)) +
+    theme_linedraw()+ geom_point() + facet_grid(~Ollanta_1a_Vuelta) +
+    geom_text(data = counts_df, aes(x = x_pos, y = y_pos, label = label),
+            inherit.aes = FALSE, # Important: Don't inherit aesthetics from the main plot
+            color = "black",      # Set color for the label
+            size = 4,             # Adjust size as needed
+            hjust = 1,            # Right-align the text
+            vjust = 1)  +          # Top-align the text
+
+    guides(color = guide_legend(title.position="top", title.hjust = 0.5,
+                                override.aes = list(size=5))) +
+    
+    theme(legend.position="top",
+          legend.title = element_text(face = "bold"),
+          strip.background = element_blank(),
+          strip.text.x = element_blank(),
+          panel.grid.minor = element_blank()) + 
+    scale_colour_discrete(name="Votación de Ollanta - Vuelta 1 (2011)") +
+    labs(y="Indice de Desarrollo Humano (2010)",x="Presencia Estatal, segun Censo 2007\n (Dni/Luz/Agua/SIS/EsSalud)")
+
+
+ggsave("v1scatter.pdf", v1scatter)
+ggsave("v1scatter.svg", v1scatter)
+```
+
+
+```{r}
+
+
+v2=ggplot(data=map2011)+theme_linedraw() + geom_sf(data = border, fill='white') +
+  geom_sf(aes(fill=Ollanta_2a_Vuelta),color=NA) + facet_grid(idh_level~presencia_estado) +
+    theme(legend.position="bottom",
+          axis.text.x = element_blank(),
+          axis.text.y = element_blank(),
+          axis.ticks = element_blank(),
+          panel.grid.major = element_blank(), panel.grid.minor = element_blank()
+            ) + scale_fill_discrete(name="Votación de Ollanta - Vuelta 2 (2011)") +
+  guides(fill = guide_legend(title.position="top", title.hjust = 0.5)) + 
+  scale_y_continuous(sec.axis = sec_axis(~ . , name = "Indice de Desarrollo Humano (2010)", breaks = NULL, labels = NULL)) +
+  scale_x_continuous(sec.axis = sec_axis(~ . , name = "Presencia Estatal, segun Censo 2007\n (Dni/Luz/Agua/SIS/EsSalud)", breaks = NULL, labels = NULL,))
+
+ggsave("v2map.pdf", v2)
+ggsave("v2map.svg", v2)
+
+
+```
+
+
+```{r}
+library(dplyr) 
+# 1. Calculate the counts per facet group
+counts_df2 <- map2011 %>%
+  group_by(Ollanta_2a_Vuelta) %>%
+  summarise(n_points = n()) %>%
+  ungroup()
+
+# 2. Determine good positions for the text in each facet
+max_estado <- max(map2011$estado, na.rm = TRUE)
+max_idh <- max(map2011$idh, na.rm = TRUE)
+
+# Add the coordinates to the counts_df
+counts_df2 <- counts_df2 %>%
+  mutate(
+    x_pos = 55,  # 95% of the max estado value for x-position
+    y_pos = 95, # 95% of the max idh value for y-position (since y is 100*idh)
+    label = paste0(n_points, " distritos")
+  )
+
+
+v2scatter=
+    ggplot(data = map2011, aes(x=estado, y=100*idh,color=Ollanta_2a_Vuelta)) +
+    theme_linedraw()+ geom_point() + facet_grid(~Ollanta_2a_Vuelta) +
+    geom_text(data = counts_df2, aes(x = x_pos, y = y_pos, label = label),
+            inherit.aes = FALSE, # Important: Don't inherit aesthetics from the main plot
+            color = "black",      # Set color for the label
+            size = 4,             # Adjust size as needed
+            hjust = 1,            # Right-align the text
+            vjust = 1)  +          # Top-align the text
+    guides(color = guide_legend(title.position="top", title.hjust = 0.5,
+                                override.aes = list(size=5))) +
+    theme(legend.position="top",
+          legend.title = element_text(face = "bold"),
+          strip.background = element_blank(),
+          strip.text.x = element_blank(),
+          panel.grid.minor = element_blank())  + 
+    scale_colour_discrete(name="Votación de Ollanta - Vuelta 2 (2011)") +
+    labs(y="Indice de Desarrollo Humano (2010)",x="Presencia Estatal, segun Censo 2007\n (Dni/Luz/Agua/SIS/EsSalud)")
+
+
+ggsave("v2scatter.pdf", v2scatter)
+ggsave("v2scatter.svg", v2scatter)
+```
+
+```{r}
+# ggplot(data=map2011)+theme_linedraw() + geom_sf(data = border, fill='white') +
+#   geom_sf(aes(fill=Ollanta_1a_Vuelta),color=NA) + facet_grid(ciudadania_trabajo~presencia_estado) +
+#     theme(legend.position="bottom",
+#           axis.text.x = element_blank(),
+#           axis.text.y = element_blank(),
+#           axis.ticks = element_blank(),
+#           panel.grid.major = element_blank(), panel.grid.minor = element_blank()
+#             ) + 
+#   guides(fill = guide_legend(title.position="top", title.hjust = 0.5)) + 
+#   scale_y_continuous(sec.axis = sec_axis(~ . , name = "Ciudadanos trabajan\n como técnicos o más", breaks = NULL, labels = NULL)) +
+#   scale_x_continuous(sec.axis = sec_axis(~ . , name = "Presencia Estatal\n (dni/luz/agua/sis/essalud)", breaks = NULL, labels = NULL,))
 
 ```
 ```{r}
-ggplot(data=map2011)+theme_linedraw() + geom_sf(data = border, fill='white') +
-  geom_sf(aes(fill=Ollanta_1a_Vuelta),color=NA) + facet_grid(ciudadania_trabajo~presencia_estado) +
-    theme(legend.position="bottom",
-          axis.text.x = element_blank(),
-          axis.text.y = element_blank(),
-          axis.ticks = element_blank(),
-          panel.grid.major = element_blank(), panel.grid.minor = element_blank()
-            ) + 
-  guides(fill = guide_legend(title.position="top", title.hjust = 0.5)) + 
-  scale_y_continuous(sec.axis = sec_axis(~ . , name = "Ciudadanos trabajan\n como técnicos o más", breaks = NULL, labels = NULL)) +
-  scale_x_continuous(sec.axis = sec_axis(~ . , name = "Presencia Estatal\n (dni/luz/agua/sis/essalud)", breaks = NULL, labels = NULL,))
+# library(ggplot2)
+# 
+# ggplot(data=map2011)+theme_linedraw() + geom_sf(data = border, fill='white') +
+#   geom_sf(aes(fill=Ollanta_2a_Vuelta),color=NA) + facet_grid(idh~presencia_estado) +
+#     theme(legend.position="bottom",
+#           axis.text.x = element_blank(),
+#           axis.text.y = element_blank(),
+#           axis.ticks = element_blank(),
+#           panel.grid.major = element_blank(), panel.grid.minor = element_blank()
+#             ) + 
+#   guides(fill = guide_legend(title.position="top", title.hjust = 0.5)) + 
+#   scale_y_continuous(sec.axis = sec_axis(~ . , name = "Indice de Desarrollo Humano", breaks = NULL, labels = NULL)) +
+#   scale_x_continuous(sec.axis = sec_axis(~ . , name = "Presencia Estatal\n (dni/luz/agua/sis/essalud)", breaks = NULL, labels = NULL,))
 
 ```
 ```{r}
-library(ggplot2)
-
-ggplot(data=map2011)+theme_linedraw() + geom_sf(data = border, fill='white') +
-  geom_sf(aes(fill=Ollanta_2a_Vuelta),color=NA) + facet_grid(ciudadania_educacion~presencia_estado) +
-    theme(legend.position="bottom",
-          axis.text.x = element_blank(),
-          axis.text.y = element_blank(),
-          axis.ticks = element_blank(),
-          panel.grid.major = element_blank(), panel.grid.minor = element_blank()
-            ) + 
-  guides(fill = guide_legend(title.position="top", title.hjust = 0.5)) + 
-  scale_y_continuous(sec.axis = sec_axis(~ . , name = "Ciudadanos culminan\n secundaria o más", breaks = NULL, labels = NULL)) +
-  scale_x_continuous(sec.axis = sec_axis(~ . , name = "Presencia Estatal\n (dni/luz/agua/sis/essalud)", breaks = NULL, labels = NULL,))
+# ggplot(data=map2011)+theme_linedraw() + geom_sf(data = border, fill='white') +
+#   geom_sf(aes(fill=Ollanta_2a_Vuelta),color=NA) + facet_grid(ciudadania_trabajo~presencia_estado) +
+#     theme(legend.position="bottom",
+#           axis.text.x = element_blank(),
+#           axis.text.y = element_blank(),
+#           axis.ticks = element_blank(),
+#           panel.grid.major = element_blank(), panel.grid.minor = element_blank()
+#             ) + 
+#   guides(fill = guide_legend(title.position="top", title.hjust = 0.5)) + 
+#   scale_y_continuous(sec.axis = sec_axis(~ . , name = "Ciudadanos trabajan\n como técnicos o más", breaks = NULL, labels = NULL)) +
+#   scale_x_continuous(sec.axis = sec_axis(~ . , name = "Presencia Estatal\n (dni/luz/agua/sis/essalud)", breaks = NULL, labels = NULL,))
 
 ```
-```{r}
-ggplot(data=map2011)+theme_linedraw() + geom_sf(data = border, fill='white') +
-  geom_sf(aes(fill=Ollanta_2a_Vuelta),color=NA) + facet_grid(ciudadania_trabajo~presencia_estado) +
-    theme(legend.position="bottom",
-          axis.text.x = element_blank(),
-          axis.text.y = element_blank(),
-          axis.ticks = element_blank(),
-          panel.grid.major = element_blank(), panel.grid.minor = element_blank()
-            ) + 
-  guides(fill = guide_legend(title.position="top", title.hjust = 0.5)) + 
-  scale_y_continuous(sec.axis = sec_axis(~ . , name = "Ciudadanos trabajan\n como técnicos o más", breaks = NULL, labels = NULL)) +
-  scale_x_continuous(sec.axis = sec_axis(~ . , name = "Presencia Estatal\n (dni/luz/agua/sis/essalud)", breaks = NULL, labels = NULL,))
 
-```
