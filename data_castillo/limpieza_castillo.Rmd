@@ -1,0 +1,224 @@
+---
+title: "elecciones"
+output: html_document
+date: "2025-07-15"
+---
+
+
+```{r}
+library(rio)
+primera = import("primera_vuelta_2021.csv")
+```
+
+```{r}
+segunda = import("segunda_vuelta_2021.csv")
+```
+
+```{r}
+cifras = import("estado.xlsx")
+```
+
+```{r}
+primera$UBIGEO <- as.character(primera$UBIGEO)
+
+primera$UBIGEO <- ifelse(nchar(primera$UBIGEO) == 5,
+                        paste0("0", primera$UBIGEO),
+                        primera$UBIGEO)
+```
+
+```{r}
+segunda$UBIGEO <- as.character(segunda$UBIGEO)
+
+segunda$UBIGEO <- ifelse(nchar(segunda$UBIGEO) == 5,
+                        paste0("0", segunda$UBIGEO),
+                        segunda$UBIGEO)
+```
+
+```{r}
+library(dplyr)
+segunda_agrupada <- segunda %>%
+  group_by(UBIGEO, DEPARTAMENTO, PROVINCIA, DISTRITO) %>%
+  summarise(
+    votos_perulibre = sum(as.numeric(PERU_LIBRE), na.rm = TRUE),
+    votos_totales = sum(as.numeric(N_CVAS), na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(segunda_castillo_porc = (votos_perulibre / votos_totales) * 100)
+```
+
+```{r}
+primera_agrupada <- primera %>%
+  group_by(UBIGEO, DEPARTAMENTO, PROVINCIA, DISTRITO) %>%
+  summarise(
+    votos_perulibre = sum(as.numeric(PERU_LIBRE), na.rm = TRUE),
+    votos_totales = sum(as.numeric(N_CVAS), na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(primera_castillo_porc = (votos_perulibre / votos_totales) * 100)
+```
+
+```{r}
+library(dplyr)
+library(stringr)
+library(tidyr)
+
+cifras_limpia <- cifras %>%
+  mutate(
+    # Detectamos si tiene el patrón con etiquetas
+    tiene_tags = str_detect(`Nombre de Distrito`, "Dpto\\.|Prov\\.|Dist\\.")
+  ) %>%
+  
+  # Separación condicional según patrón
+  mutate(
+    DEPARTAMENTO = case_when(
+      tiene_tags ~ str_extract(`Nombre de Distrito`, "(?<=Dpto\\.\\s)[^P]+"),
+      TRUE        ~ word(`Nombre de Distrito`, 1)
+    ),
+    PROVINCIA = case_when(
+      tiene_tags ~ str_extract(`Nombre de Distrito`, "(?<=Prov\\.\\s)[^D]+"),
+      TRUE        ~ word(`Nombre de Distrito`, 2)
+    ),
+    DISTRITO = case_when(
+      tiene_tags ~ str_extract(`Nombre de Distrito`, "(?<=Dist\\.\\s).*"),
+      TRUE        ~ word(`Nombre de Distrito`, 3)
+    )
+  ) %>%
+  # Limpiar espacios y convertir a mayúsculas
+  mutate(across(c(DEPARTAMENTO, PROVINCIA, DISTRITO), ~ str_squish(str_to_upper(.)))) %>%
+  select(-tiene_tags)
+```
+
+```{r}
+library(dplyr)
+library(stringi)
+
+# Función auxiliar para estandarizar texto
+limpiar_texto <- function(x) {
+  x %>%
+    stri_trans_general("Latin-ASCII") %>%  # elimina tildes y caracteres raros
+    toupper() %>%                          # convierte a mayúsculas
+    str_squish()                           # elimina espacios extras
+}
+
+# Limpiar claves en cada base ANTES del merge
+cifras_limpia <- cifras_limpia %>%
+  mutate(across(c(DEPARTAMENTO, PROVINCIA, DISTRITO), limpiar_texto))
+
+primera_agrupada <- primera_agrupada %>%
+  mutate(across(c(DEPARTAMENTO, PROVINCIA, DISTRITO), limpiar_texto))
+
+segunda_agrupada <- segunda_agrupada %>%
+  mutate(across(c(DEPARTAMENTO, PROVINCIA, DISTRITO), limpiar_texto))
+
+```
+
+
+```{r}
+cifras_limpia <- cifras_limpia %>%
+  select(-`Nombre de Distrito`)
+```
+
+
+```{r}
+# Merge entre primera y segunda vuelta
+base_castillo <- primera_agrupada %>%
+  select(UBIGEO,DEPARTAMENTO, PROVINCIA, DISTRITO, primera_castillo_porc) %>%
+  left_join(
+    segunda_agrupada %>%
+      select(UBIGEO, DEPARTAMENTO, PROVINCIA, DISTRITO, segunda_castillo_porc),
+    by = c("DEPARTAMENTO", "PROVINCIA", "DISTRITO")
+  )
+
+# Merge con cifras
+data_castillo <- base_castillo %>%
+  left_join(
+    cifras_limpia %>%
+      select(DEPARTAMENTO, PROVINCIA, DISTRITO,
+             redpub_porc, dni_porc, elec_porc,
+             salud_porc, edu_porc, trabajo_porc, diana),
+    by = c("DEPARTAMENTO", "PROVINCIA", "DISTRITO")
+  ) %>%
+  rename(cluster_diana = diana)
+```
+
+
+```{r}
+str(data_castillo)
+```
+
+
+
+```{r}
+library(tidyr)
+data_castillo_limpia <- drop_na(data_castillo)
+```
+
+```{r}
+no_match <- data_castillo %>%
+  filter(is.na(redpub_porc) | is.na(cluster_diana) | is.na(primera_castillo_porc) | is.na(segunda_castillo_porc))
+
+```
+
+```{r}
+no_match %>% select(DEPARTAMENTO, PROVINCIA, DISTRITO) %>% distinct()
+```
+
+```{r}
+library(fuzzyjoin)
+
+library(dplyr)
+
+# Asegurarte de que no hay NAs en las columnas clave
+base_castillo_clean <- base_castillo %>%
+  filter(!is.na(DEPARTAMENTO) & !is.na(PROVINCIA) & !is.na(DISTRITO))
+
+cifras_limpia_clean <- cifras_limpia %>%
+  filter(!is.na(DEPARTAMENTO) & !is.na(PROVINCIA) & !is.na(DISTRITO))
+
+# Fuzzy join
+data_castillo_fuzzy <- base_castillo_clean %>%
+  stringdist_left_join(
+    cifras_limpia_clean,
+    by = c("DEPARTAMENTO" = "DEPARTAMENTO", 
+           "PROVINCIA" = "PROVINCIA", 
+           "DISTRITO" = "DISTRITO"),
+    method = "lv",
+    max_dist = 1,  # Puedes ajustar esto
+    distance_col = "distancia"
+  )
+
+```
+
+```{r}
+fuzzy_limpia <- data_castillo_fuzzy %>%
+  select(
+    UBIGEO = Ubigeo,
+    DEPARTAMENTO = DEPARTAMENTO.x,
+    PROVINCIA = PROVINCIA.x,
+    DISTRITO = DISTRITO.x,
+    primera_castillo_porc,
+    segunda_castillo_porc,
+    redpub_porc,
+    dni_porc,
+    elec_porc,
+    salud_porc,
+    edu_porc,
+    trabajo_porc,
+    cluster_diana = diana
+  )
+
+```
+
+```{r}
+sina_fuzzy_limpia <- fuzzy_limpia %>%
+  drop_na()
+```
+
+```{r}
+write_xlsx(fuzzy_limpia, path = "castillo_votacion.xlsx")
+```
+
+```{r}
+write_xlsx(sina_fuzzy_limpia, path = "castillo_votacion_sina.xlsx")
+```
+
